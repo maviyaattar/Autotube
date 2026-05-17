@@ -3,33 +3,23 @@ import express from 'express'
 import mongoose from 'mongoose'
 import cors from 'cors'
 import jwt from 'jsonwebtoken'
-import bcrypt from 'bcryptjs'
-import { v4 as uuidv4 } from 'uuid'
+import cloudinary from 'cloudinary'
 import cron from 'node-cron'
 import axios from 'axios'
-import cloudinary from 'cloudinary'
-import fs from 'fs'
-import path from 'path'
 
 const app = express()
 app.use(cors())
 app.use(express.json())
 
-// ====== DB SETUP (User, Schedule, Shorts) ======
+// ===== DB Schemas =====
 const userSchema = new mongoose.Schema({
   email: { type: String, unique: true },
-  password: String,  // hash!
+  password: String, // Use bcrypt in prod!
   name: String,
-  youTubeAccounts: [
-    {
-      googleId: String,
-      refresh_token: String, // OAuth
-      channelId: String,
-      channelTitle: String,
-      profileImg: String
-    }
-  ],
-  selectedAccount: Number,
+  ytAccounts: [{
+    refresh_token: String,
+    channelTitle: String
+  }],
   preferences: {
     niche: String,
     theme: String,
@@ -41,18 +31,17 @@ const User = mongoose.model('User', userSchema)
 
 const shortSchema = new mongoose.Schema({
   userId: mongoose.Types.ObjectId,
-  youTubeAccountId: String,
-  videoId: String,
   quote: String,
   topic: String,
   theme: String,
+  videoUrl: String,
+  thumbUrl: String,
   uploadedAt: Date,
-  status: String,    // pending, done, failed
-  meta: Object
+  status: String
 })
 const Short = mongoose.model('Short', shortSchema)
 
-// ====== AUTH MIDDLEWARE ======
+// ==== AUTH Helper ====
 const auth = async (req, res, next) => {
   const token = req.header('Authorization')?.replace('Bearer ', '')
   if (!token) return res.status(401).json({ msg: 'No token' })
@@ -66,166 +55,162 @@ const auth = async (req, res, next) => {
   }
 }
 
-// ====== YOUTUBE OAuth Helper — Initiate + Callback ======
-// (You must set up your Google Client and redirect in prod)
-app.get('/api/youtube/auth-url', auth, (req, res) => {
-  // Redirect user to Google auth URL
-  // ...TO-DO: Generate OAuth URL with state & redirect (see googleapis docs)
-  res.json({ url: 'https://accounts.google.com/o/oauth2/auth?...' })
+// === Cloudinary ===
+cloudinary.v2.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true
 })
 
-app.post('/api/youtube/oauth-callback', auth, async (req, res) => {
-  // Exchange code for refresh_token, add to user
-  // ...TO-DO: This requires proper Google OAuth2 handling
-  res.json({ msg: "YT account token saved" }) // Placeholder
-})
+// === Util: get backgrounds & theme overlays ===
+const THEMES = {
+  Classic: {
+    bg: "https://res.cloudinary.com/demo/image/upload/v1700000000/bg-classic.jpg",
+    borderColor: "#FABC2A",
+    fontColor: "#121212"
+  },
+  Neon: {
+    bg: "https://res.cloudinary.com/demo/image/upload/v1700000000/bg-neon.jpg",
+    borderColor: "#22AADD",
+    fontColor: "#F9F871"
+  },
+  Rustic: {
+    bg: "https://res.cloudinary.com/demo/image/upload/v1700000000/bg-rustic.jpg",
+    borderColor: "#A86B4C",
+    fontColor: "#3B260A"
+  }
+  // ...add as many as you want!
+}
 
-// ====== ACCOUNT MANAGEMENT ======
+// === Dummy Quote Generator (replace with real AI/Groq/OpenAI later) ===
+function generateQuote(topic = "Life") {
+  const demos = {
+    Motivation: ["Never give up on your dreams.", "The only limit is your mind."],
+    Islamic: ["Trust in Allah, He is the best Planner.", "Prayer changes everything."]
+  }
+  let arr = demos[topic] || demos.Motivation
+  return arr[Math.floor(Math.random()*arr.length)]
+}
+
+// == Util: Generate Video & Thumb (Cloudinary URL manip) ==
+async function generateVideoAndThumb({ quote, theme }) {
+  // Use Cloudinary overlays by URL (no ffmpeg required)
+  const t = THEMES[theme] || THEMES['Classic']
+  // Video BG: could be mp4 or image url. We'll use "l_text" overlays for styling.
+  const text = encodeURIComponent(quote)
+  const videoUrl = cloudinary.v2.url("sample", {
+    resource_type: "video",
+    width: 1080, height: 1920, crop: "fill", gravity: "auto",
+    overlay: [
+      {
+        font_family: "Arial",
+        font_size: 60,
+        font_weight: "bold",
+        text: text,
+        color: t.fontColor.replace("#", "rgb:"),
+        y: 0,
+        gravity: "center",
+        border: `10px_solid_${t.borderColor.replace("#", "rgb:")}`
+      }
+    ],
+    background: t.bg,
+    flags: "layer_apply"
+  })
+  // Thumb as static image with same overlay
+  const thumbUrl = cloudinary.v2.url("sample", {
+    resource_type: "image",
+    width: 1080, height: 1920, crop: "fill", gravity: "auto",
+    overlay: [
+      {
+        font_family: "Arial",
+        font_size: 80,
+        font_weight: "bold",
+        text: text,
+        color: t.fontColor.replace("#", "rgb:"),
+        y: 0,
+        gravity: "center",
+        border: `10px_solid_${t.borderColor.replace("#", "rgb:")}`
+      }
+    ],
+    background: t.bg,
+    flags: "layer_apply"
+  })
+  return { videoUrl, thumbUrl }
+}
+
+// ==== API ROUTES ====
+
+// Health
+app.get('/', (req, res) => res.send('YT SaaS Backend running: lightweight & pro'))
+
+// (NOTE: Use strong password hash/check in production!)
 app.post('/api/signup', async (req, res) => {
   const { email, password, name } = req.body
-  if (!email || !password || !name) return res.status(400).json({ msg: 'Missing fields' })
-  const hash = await bcrypt.hash(password, 10)
-  const user = await User.create({ email, password: hash, name, youTubeAccounts: [], selectedAccount: null, preferences: {} })
-  res.json({ token: jwt.sign({ id: user._id }, process.env.JWT_SECRET), user: { email, name } })
+  if (!email || !password || !name) return res.status(400).json({ msg: "Missing fields" })
+  const u = await User.create({ email, password, name })
+  const token = jwt.sign({ id: u._id }, process.env.JWT_SECRET)
+  res.json({ token, user: { email, name } })
 })
 
 app.post('/api/login', async (req, res) => {
   const { email, password } = req.body
-  const user = await User.findOne({ email })
-  if (!user || !(await bcrypt.compare(password, user.password)))
-    return res.status(400).json({ msg: 'Invalid credentials' })
-  res.json({ token: jwt.sign({ id: user._id }, process.env.JWT_SECRET), user: { email, name: user.name } })
+  const u = await User.findOne({ email }); if (!u) return res.status(400).json({ msg: "No user" })
+  if (u.password !== password) return res.status(400).json({ msg: "Wrong pass" })
+  const token = jwt.sign({ id: u._id }, process.env.JWT_SECRET)
+  res.json({ token, user: { email: u.email, name: u.name } })
+})
+
+app.get('/api/templates', (req, res) => {
+  res.json({ themes: Object.keys(THEMES), niches: ["Islamic", "Motivation", "Funny", "Jokes", "Riddles"] })
 })
 
 app.get('/api/me', auth, (req, res) => {
   res.json({ user: req.user })
 })
 
-app.post('/api/profile', auth, async (req, res) => {
-  Object.assign(req.user, req.body)
-  await req.user.save()
-  res.json({ user: req.user })
-})
-
-// ====== Preferences / SaaS Custom Setup ======
-const NICHES = ['Islamic Quotes', 'Motivation', 'Funny', 'Jokes', 'Riddles', 'Tech', 'Love', 'Wisdom']
-const THEMES = ['Classic', 'Minimal', 'Modern', 'Neon', 'Pastel', 'Rustic', 'Dark', 'ColorPop']
-
-app.get('/api/templates', (req, res) => {
-  res.json({ niches: NICHES, themes: THEMES })
-})
-
 app.post('/api/preferences', auth, async (req, res) => {
-  // { niche, theme, uploadCount, uploadTimes }
   req.user.preferences = req.body
   await req.user.save()
   res.json({ preferences: req.user.preferences })
 })
 
-app.get('/api/preferences', auth, (req, res) => {
-  res.json({ preferences: req.user.preferences })
-})
-
-// ====== Schedule Manipulation ======
+// User requests to schedule video
 app.post('/api/schedule', auth, async (req, res) => {
-  // For simplicity save new preferences & times on user
-  req.user.preferences.uploadCount = req.body.uploadCount
-  req.user.preferences.uploadTimes = req.body.uploadTimes
-  await req.user.save()
-  res.json({ msg: 'Schedule updated' })
-})
-
-// ===== Show recent/upcoming shorts for dashboard =====
-app.get('/api/my-shorts', auth, async (req, res) => {
-  const shorts = await Short.find({ userId: req.user._id }).sort('-uploadedAt').limit(20)
-  res.json({ shorts })
-})
-
-// ====== Manual trigger for test (e.g. run video builder now) ======
-app.post('/api/generate', auth, async (req, res) => {
-  // Mark video as pending for worker
-  const short = await Short.create({
+  // Here: create "Short" with pending status (could use cron/worker etc)
+  const { theme, niche } = req.user.preferences
+  const quote = generateQuote(niche)
+  const topic = niche; // In real scenario, you can randomize topic per niche
+  const { videoUrl, thumbUrl } = await generateVideoAndThumb({ quote, theme })
+  const s = await Short.create({
     userId: req.user._id,
-    youTubeAccountId: req.user.youTubeAccounts[req.user.selectedAccount]?.googleId,
-    niche: req.user.preferences.niche,
-    theme: req.user.preferences.theme,
-    status: 'pending'
+    quote, topic, theme, videoUrl, thumbUrl,
+    status: "pending"
   })
-  res.json({ msg: 'Video scheduled for creation', shortId: short._id })
+  res.json({ msg: 'Short scheduled', shortId: s._id })
 })
 
-// ============ ==== BACKGROUND VIDEO WORKER ===============
-// (Runs via cron or script, simplified here as inside this file)
-
-const THEMES_CONFIG = {
-  'Classic': { overlayColor: '#FBEDE0', font: 'serif' },
-  'Neon':    { overlayColor: '#B6E2F9', font: 'sans-serif' },
-  'Dark':    { overlayColor: '#14121C', font: 'monospace' },
-  'Pastel':  { overlayColor: '#E2C2B3', font: 'sans-serif' },
-  'ColorPop':{ overlayColor: '#FF22A1', font: 'modern-casual' },
-  // ... extend
-}
-// A map for quick styling expansion
-
-cloudinary.v2.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key:    process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-  secure:     true,
+// See all Shorts for dashboard
+app.get('/api/my-shorts', auth, async (req, res) => {
+  const list = await Short.find({ userId: req.user._id }).sort('-uploadedAt').limit(50)
+  res.json({ shorts: list })
 })
 
-async function buildAndUploadShort(short, user) {
-  // 1. Get a quote based on niche (simulate for now)
-  const topic = user.preferences.niche || NICHES[0]
-  const quote = `Sample quote for ${topic}`
-
-  // 2. Generate overlay and theme (simulate for now)
-  const theme = user.preferences.theme || 'Classic'
-  const { overlayColor, font } = THEMES_CONFIG[theme] || THEMES_CONFIG['Classic']
-
-  // 3. Generate background, overlay, combine with a template video (simulate)
-  // [You would trigger your real video pipeline (ffmpeg, puppeteer, …)]
-  // Simulate:
-  await new Promise(r => setTimeout(r, 2000)) // simulate rendering
-
-  // 4. Upload video (or use placeholder)
-  const cloud_url = 'https://res.cloudinary.com/demo/video/upload/sample.mp4'
-  // 5. "Upload" to YouTube (SIMULATE: assign videoId)
-  const videoId = uuidv4()
-
-  short.status = 'done'
-  short.videoId = videoId
-  short.quote = quote
-  short.topic = topic
-  short.theme = theme
-  short.uploadedAt = new Date()
-  short.meta = { overlayColor, font, url: cloud_url }
-  await short.save()
-  console.log(`[WORKER] Uploaded video for user ${user.email}, short ${short._id}`)
-}
-
-cron.schedule('*/5 * * * *', async () => {
-  // Every 5 minutes: process new shorts!
-  const shorts = await Short.find({ status: 'pending' }).limit(10)
-  for (const short of shorts) {
-    const user = await User.findById(short.userId)
-    if (!user) continue
-    try {
-      await buildAndUploadShort(short, user)
-    } catch (e) {
-      short.status = 'failed'
-      await short.save()
-      console.error('Video generation/upload error:', e)
-    }
+// ==== "Lightweight Worker" -> automatic video uploads ====
+// You can call this endpoint on cron via cron-job.org or Render cron for periodic batch processing.
+app.post('/api/worker-run', async (req, res) => {
+  const shorts = await Short.find({ status: "pending" }).limit(5)
+  for (let s of shorts) {
+    // Simulate YouTube upload by marking as done and updating uploadedAt
+    s.status = "done"
+    s.uploadedAt = new Date()
+    await s.save()
   }
+  res.json({ msg: `Processed ${shorts.length} shorts.` })
 })
 
-app.get('/', (req, res) => res.send('YT SaaS Backend is running.'))
-
-// ====== Start Server ======
+// ===== START SERVER =====
 const PORT = process.env.PORT || 4000
-mongoose.connect(process.env.MONGO_URI, { })
-  .then(() => {
-    app.listen(PORT, () => console.log('Backend ready on ' + PORT))
-  })
+mongoose.connect(process.env.MONGO_URI, {})
+  .then(() => app.listen(PORT, () => console.log(`YT SaaS API on ${PORT}`)))
   .catch(e => console.error(e))
