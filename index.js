@@ -36,6 +36,8 @@ const ytAccountSchema = new mongoose.Schema({
   channelTitle: String,
   profileImg: String,
   refresh_token: String,
+  // Set to true when the stored token lacks required scopes; user must reconnect
+  needsReconnect: { type: Boolean, default: false },
 }, { _id: false })
 
 const userSchema = new mongoose.Schema({
@@ -206,18 +208,25 @@ app.post('/api/preferences', auth, async (req, res) => {
   } catch (e) { res.status(500).json({ msg: e.message }) }
 })
 
+// YouTube OAuth scopes required by this application:
+//   youtube         – manage account (needed for channels.list + videos.insert)
+//   userinfo.email  – fetch the account email at connect time
+//   userinfo.profile – fetch basic profile info at connect time
+const YT_SCOPES = [
+  'https://www.googleapis.com/auth/youtube',
+  'https://www.googleapis.com/auth/userinfo.email',
+  'https://www.googleapis.com/auth/userinfo.profile'
+]
+
 // === YouTube Connect ===
 app.get("/api/youtube/connect", auth, (req, res) => {
   try {
     const client = getOAuth2Client()
     const url = client.generateAuthUrl({
       access_type: 'offline',
+      // 'consent' forces the consent screen every time, ensuring a refresh_token is returned
       prompt: 'consent',
-      scope: [
-        'https://www.googleapis.com/auth/youtube.upload',
-        'https://www.googleapis.com/auth/userinfo.email',
-        'https://www.googleapis.com/auth/userinfo.profile'
-      ]
+      scope: YT_SCOPES
     })
     res.json({ url })
   } catch (e) { res.status(500).json({ msg: e.message }) }
@@ -240,12 +249,23 @@ app.post("/api/youtube/callback", auth, async (req, res) => {
       channelId: channelInfo.id,
       channelTitle: channelInfo.snippet.title,
       profileImg: channelInfo.snippet.thumbnails.default.url,
-      refresh_token: tokens.refresh_token
+      refresh_token: tokens.refresh_token,
+      needsReconnect: false
     })
     req.user.selectedAccount = req.user.ytAccounts.length - 1
     await req.user.save()
     res.json({ ytAccount: req.user.ytAccounts[req.user.selectedAccount] })
   } catch (err) {
+    // Detect OAuth scope/permission errors and return an actionable message
+    const isPermissionError =
+      err.message?.toLowerCase().includes('insufficient') ||
+      err.message?.toLowerCase().includes('forbidden') ||
+      err.code === 403
+    if (isPermissionError) {
+      return res.status(403).json({
+        msg: "OAuth failed: Insufficient Permission. Please disconnect your YouTube account and reconnect to grant the required permissions."
+      })
+    }
     res.status(400).json({ msg: "OAuth failed: " + err.message })
   }
 })
@@ -360,7 +380,24 @@ async function workerProcess() {
       job.status = "failed"
       job.error = err.message || "Job failed"
       await job.save()
-      console.error("[WORKER] Failed:", err.message)
+      // If the failure is a permission error, flag the account so the user is prompted to reconnect
+      const isPermissionError =
+        err.message?.toLowerCase().includes('insufficient') ||
+        err.message?.toLowerCase().includes('forbidden') ||
+        (err.response && err.response.status === 403)
+      if (isPermissionError) {
+        try {
+          const user = await User.findById(job.userId)
+          if (user && user.ytAccounts[job.ytAccountIdx || 0]) {
+            user.ytAccounts[job.ytAccountIdx || 0].needsReconnect = true
+            user.markModified('ytAccounts')
+            await user.save()
+          }
+        } catch (_) { /* best-effort */ }
+        console.error("[WORKER] Permission error – account flagged for reconnect:", err.message)
+      } else {
+        console.error("[WORKER] Failed:", err.message)
+      }
     }
   }
 }
