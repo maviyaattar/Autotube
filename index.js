@@ -1,371 +1,159 @@
+index.js
+
 import 'dotenv/config'
+
 import express from 'express'
 import mongoose from 'mongoose'
 import cors from 'cors'
 import jwt from 'jsonwebtoken'
 import bcrypt from 'bcryptjs'
+
+import axios from 'axios'
+import cron from 'node-cron'
+import fs from 'fs-extra'
+import os from 'os'
+import path from 'path'
+
+import cloudinary from 'cloudinary'
 import { google } from 'googleapis'
 
-// ======================================================
-// APP
-// ======================================================
+import renderOverlay from './renderOverlay.js'
+
+// =====================================================
 
 const app = express()
 
-// ======================================================
-// ENV CHECK
-// ======================================================
+const PORT =
+process.env.PORT || 4000
 
-const requiredEnv = [
+const BASE_PUBLIC_ID =
+'ai-reel-bot/base_template_v5'
 
-  'MONGO_URI',
-  'JWT_SECRET',
-
-  'GOOGLE_CLIENT_ID',
-  'GOOGLE_CLIENT_SECRET',
-
-  'YT_OAUTH_REDIRECT'
-
-]
-
-for (const key of requiredEnv) {
-
-  if (!process.env[key]) {
-
-    console.error(
-      `❌ Missing ENV: ${key}`
-    )
-
-    process.exit(1)
-  }
-}
-
-// ======================================================
+// =====================================================
 // MIDDLEWARE
-// ======================================================
+// =====================================================
 
 app.use(cors({
 
   origin: [
-
     'https://auto-tube-beta.vercel.app',
-
-    'http://localhost:3000',
-
-    'http://127.0.0.1:5500'
-
+    'http://localhost:3000'
   ],
 
-  credentials: true
+  credentials:true
 
 }))
 
-app.use(express.json({
+app.use(express.json())
 
-  limit: '10mb'
+// =====================================================
+// CLOUDINARY
+// =====================================================
 
-}))
+cloudinary.v2.config({
 
-// ======================================================
-// REQUEST LOGGER
-// ======================================================
+  cloud_name:
+  process.env.CLOUDINARY_CLOUD_NAME,
 
-app.use((req, res, next) => {
+  api_key:
+  process.env.CLOUDINARY_API_KEY,
 
-  console.log(
+  api_secret:
+  process.env.CLOUDINARY_API_SECRET
 
-    `[${new Date().toISOString()}]`,
-
-    req.method,
-
-    req.url
-
-  )
-
-  next()
 })
 
-// ======================================================
+// =====================================================
 // MONGODB
-// ======================================================
+// =====================================================
 
-mongoose.set('strictQuery', true)
+mongoose.connect(
+  process.env.MONGO_URI
+)
 
-mongoose.connect(process.env.MONGO_URI)
-
-.then(() => {
-
-  console.log(
-    '✅ MongoDB Connected'
-  )
-
+.then(()=>{
+  console.log('MongoDB Connected')
 })
 
-.catch((err) => {
-
-  console.error(
-    '❌ MongoDB Error:',
-    err.message
-  )
-
-  process.exit(1)
+.catch(err=>{
+  console.log(err.message)
 })
 
-// ======================================================
+// =====================================================
 // SCHEMAS
-// ======================================================
-
-// ======================
-// USER
-// ======================
+// =====================================================
 
 const userSchema =
 new mongoose.Schema({
 
-  name: {
+  name:String,
 
-    type: String,
-
-    required: true,
-
-    trim: true
-
+  email:{
+    type:String,
+    unique:true
   },
 
-  email: {
-
-    type: String,
-
-    required: true,
-
-    unique: true,
-
-    lowercase: true,
-
-    trim: true
-
-  },
-
-  password: {
-
-    type: String,
-
-    required: true
-
-  }
-
-}, {
-
-  timestamps: true
+  password:String
 
 })
-
-// ======================
-// CHANNEL
-// ======================
 
 const channelSchema =
 new mongoose.Schema({
 
-  userId: {
+  userId:mongoose.Schema.Types.ObjectId,
 
-    type: mongoose.Schema.Types.ObjectId,
+  channelId:String,
 
-    ref: 'User',
+  channelTitle:String,
 
-    required: true
+  profileImg:String,
 
-  },
-
-  email: String,
-
-  channelId: {
-
-    type: String,
-
-    required: true
-
-  },
-
-  channelTitle: String,
-
-  profileImg: String,
-
-  refresh_token: String
-
-}, {
-
-  timestamps: true
+  refresh_token:String
 
 })
-
-channelSchema.index({
-
-  userId: 1,
-  channelId: 1
-
-}, {
-
-  unique: true
-
-})
-
-// ======================
-// PROJECT
-// ======================
 
 const projectSchema =
 new mongoose.Schema({
 
-  userId: {
+  userId:mongoose.Schema.Types.ObjectId,
 
-    type: mongoose.Schema.Types.ObjectId,
+  channelId:mongoose.Schema.Types.ObjectId,
 
-    ref: 'User',
+  name:String,
 
-    required: true
+  niche:String,
 
+  topics:[String],
+
+  theme:String,
+
+  status:{
+    type:String,
+    default:'active'
   },
 
-  channelId: {
-
-    type: mongoose.Schema.Types.ObjectId,
-
-    ref: 'Channel',
-
-    required: true
-
-  },
-
-  name: {
-
-    type: String,
-
-    required: true
-
-  },
-
-  niche: {
-
-    type: String,
-
-    required: true
-
-  },
-
-  topics: {
-
-    type: [String],
-
-    default: []
-
-  },
-
-  theme: {
-
-    type: String,
-
-    default: 'default'
-
-  },
-
-  uploadsPerDay: {
-
-    type: Number,
-
-    default: 1
-
-  },
-
-  privacy: {
-
-    type: String,
-
-    default: 'public'
-
-  },
-
-  status: {
-
-    type: String,
-
-    default: 'active'
-
+  privacy:{
+    type:String,
+    default:'public'
   }
 
-}, {
-
-  timestamps: true
-
 })
-
-// ======================
-// JOB
-// ======================
-
-const jobSchema =
-new mongoose.Schema({
-
-  projectId: {
-
-    type: mongoose.Schema.Types.ObjectId,
-
-    ref: 'Project'
-
-  },
-
-  status: {
-
-    type: String,
-
-    default: 'pending'
-
-  },
-
-  error: String
-
-}, {
-
-  timestamps: true
-
-})
-
-// ======================
-// UPLOAD
-// ======================
 
 const uploadSchema =
 new mongoose.Schema({
 
-  projectId: {
+  projectId:
+  mongoose.Schema.Types.ObjectId,
 
-    type: mongoose.Schema.Types.ObjectId,
+  title:String,
 
-    ref: 'Project'
+  videoUrl:String,
 
-  },
+  niche:String
 
-  title: String,
-
-  quote: String,
-
-  niche: String,
-
-  topic: String,
-
-  videoId: String,
-
-  videoUrl: String
-
-}, {
-
-  timestamps: true
-
+},{
+  timestamps:true
 })
-
-// ======================================================
-// MODELS
-// ======================================================
 
 const User =
 mongoose.model(
@@ -385,23 +173,17 @@ mongoose.model(
   projectSchema
 )
 
-const Job =
-mongoose.model(
-  'Job',
-  jobSchema
-)
-
 const Upload =
 mongoose.model(
   'Upload',
   uploadSchema
 )
 
-// ======================================================
+// =====================================================
 // HELPERS
-// ======================================================
+// =====================================================
 
-function createToken(id) {
+function createToken(id){
 
   return jwt.sign(
 
@@ -411,45 +193,30 @@ function createToken(id) {
 
     {
 
-      expiresIn: '30d'
+      expiresIn:'30d'
 
     }
   )
 }
 
-function getOAuth2Client() {
-
-  return new google.auth.OAuth2(
-
-    process.env.GOOGLE_CLIENT_ID,
-
-    process.env.GOOGLE_CLIENT_SECRET,
-
-    process.env.YT_OAUTH_REDIRECT
-  )
-}
-
-// ======================================================
-// AUTH MIDDLEWARE
-// ======================================================
-
 async function auth(
   req,
   res,
   next
-) {
+){
 
-  try {
+  try{
 
     const token =
     req.header('Authorization')
-    ?.replace('Bearer ', '')
+    ?.replace('Bearer ','')
 
-    if (!token) {
+    if(!token){
 
-      return res.status(401).json({
+      return res.status(401)
+      .json({
 
-        msg: 'No token provided'
+        msg:'No token'
 
       })
     }
@@ -467,11 +234,12 @@ async function auth(
       decoded.id
     )
 
-    if (!user) {
+    if(!user){
 
-      return res.status(401).json({
+      return res.status(401)
+      .json({
 
-        msg: 'User not found'
+        msg:'User not found'
 
       })
     }
@@ -480,83 +248,68 @@ async function auth(
 
     next()
 
-  } catch (err) {
+  }catch(err){
 
-    console.error(err)
+    res.status(401)
+    .json({
 
-    res.status(401).json({
-
-      msg: 'Unauthorized'
+      msg:'Unauthorized'
 
     })
   }
 }
 
-// ======================================================
-// HEALTH
-// ======================================================
+function getOAuth2Client(){
 
-app.get('/', (req, res) => {
+  return new google.auth.OAuth2(
+
+    process.env.GOOGLE_CLIENT_ID,
+
+    process.env.GOOGLE_CLIENT_SECRET,
+
+    process.env.YT_OAUTH_REDIRECT
+  )
+}
+
+// =====================================================
+// HEALTH
+// =====================================================
+
+app.get('/',(req,res)=>{
 
   res.send(
-    'Backend Running ✅'
+    'AutoTube AI Running'
   )
+
 })
 
-// ======================================================
+// =====================================================
 // SIGNUP
-// ======================================================
+// =====================================================
 
 app.post(
   '/api/signup',
+  async(req,res)=>{
 
-  async (req, res) => {
-
-    try {
+    try{
 
       const {
-
         name,
         email,
         password
-
       } = req.body
-
-      if (
-
-        !name ||
-        !email ||
-        !password
-
-      ) {
-
-        return res.status(400).json({
-
-          msg: 'All fields required'
-
-        })
-      }
-
-      if (password.length < 6) {
-
-        return res.status(400).json({
-
-          msg: 'Password too short'
-
-        })
-      }
 
       const exists =
       await User.findOne({
-
         email
       })
 
-      if (exists) {
+      if(exists){
 
-        return res.status(400).json({
+        return res.status(400)
+        .json({
 
-          msg: 'Email already exists'
+          msg:'Email exists'
 
         })
       }
@@ -564,7 +317,7 @@ app.post(
       const hash =
       await bcrypt.hash(
         password,
-        12
+        10
       )
 
       const user =
@@ -572,7 +325,7 @@ app.post(
 
         name,
         email,
-        password: hash
+        password:hash
 
       })
 
@@ -585,91 +338,63 @@ app.post(
 
         token,
 
-        user: {
-
-          _id: user._id,
-
-          name: user.name,
-
-          email: user.email
-
-        }
+        user
 
       })
 
-    } catch (err) {
+    }catch(err){
 
-      console.error(err)
+      res.status(500)
+      .json({
 
-      res.status(500).json({
-
-        msg: err.message
+        msg:err.message
 
       })
     }
-  }
-)
+})
 
-// ======================================================
+// =====================================================
 // LOGIN
-// ======================================================
+// =====================================================
 
 app.post(
   '/api/login',
+  async(req,res)=>{
 
-  async (req, res) => {
-
-    try {
+    try{
 
       const {
-
         email,
         password
-
       } = req.body
-
-      if (
-
-        !email ||
-        !password
-
-      ) {
-
-        return res.status(400).json({
-
-          msg: 'All fields required'
-
-        })
-      }
 
       const user =
       await User.findOne({
-
         email
       })
 
-      if (!user) {
+      if(!user){
 
-        return res.status(400).json({
+        return res.status(400)
+        .json({
 
-          msg: 'User not found'
+          msg:'User not found'
 
         })
       }
 
       const valid =
       await bcrypt.compare(
-
         password,
-
         user.password
       )
 
-      if (!valid) {
+      if(!valid){
 
-        return res.status(400).json({
+        return res.status(400)
+        .json({
 
-          msg: 'Wrong password'
+          msg:'Wrong password'
 
         })
       }
@@ -683,101 +408,31 @@ app.post(
 
         token,
 
-        user: {
-
-          _id: user._id,
-
-          name: user.name,
-
-          email: user.email
-
-        }
+        user
 
       })
 
-    } catch (err) {
+    }catch(err){
 
-      console.error(err)
+      res.status(500)
+      .json({
 
-      res.status(500).json({
-
-        msg: err.message
+        msg:err.message
 
       })
     }
-  }
-)
+})
 
-// ======================================================
-// ME
-// ======================================================
-
-app.get(
-  '/api/me',
-
-  auth,
-
-  async (req, res) => {
-
-    try {
-
-      const channels =
-      await Channel.find({
-
-        userId: req.user._id
-
-      })
-
-      const projects =
-      await Project.find({
-
-        userId: req.user._id
-
-      })
-
-      res.json({
-
-        user: {
-
-          _id: req.user._id,
-
-          name: req.user.name,
-
-          email: req.user.email
-
-        },
-
-        channels,
-
-        projects
-
-      })
-
-    } catch (err) {
-
-      console.error(err)
-
-      res.status(500).json({
-
-        msg: err.message
-
-      })
-    }
-  }
-)
-
-// ======================================================
+// =====================================================
 // YOUTUBE CONNECT
-// ======================================================
+// =====================================================
 
 app.get(
   '/api/youtube/connect',
-
   auth,
+  async(req,res)=>{
 
-  async (req, res) => {
-
-    try {
+    try{
 
       const client =
       getOAuth2Client()
@@ -785,13 +440,11 @@ app.get(
       const url =
       client.generateAuthUrl({
 
-        access_type: 'offline',
+        access_type:'offline',
 
-        prompt: 'consent',
+        prompt:'consent',
 
-        include_granted_scopes: true,
-
-        scope: [
+        scope:[
 
           'openid',
 
@@ -801,8 +454,6 @@ app.get(
 
           'https://www.googleapis.com/auth/youtube.upload',
 
-          'https://www.googleapis.com/auth/youtube.readonly',
-
           'https://www.googleapis.com/auth/youtube.force-ssl'
 
         ]
@@ -811,43 +462,30 @@ app.get(
 
       res.json({ url })
 
-    } catch (err) {
+    }catch(err){
 
-      console.error(err)
+      res.status(500)
+      .json({
 
-      res.status(500).json({
-
-        msg: err.message
+        msg:err.message
 
       })
     }
-  }
-)
+})
 
-// ======================================================
+// =====================================================
 // YOUTUBE CALLBACK
-// ======================================================
+// =====================================================
 
 app.post(
   '/api/youtube/callback',
-
   auth,
+  async(req,res)=>{
 
-  async (req, res) => {
-
-    try {
+    try{
 
       const { code } =
       req.body
-
-      if (!code) {
-
-        return res.status(400).json({
-
-          msg: 'Code missing'
-
-        })
-      }
 
       const client =
       getOAuth2Client()
@@ -855,96 +493,44 @@ app.post(
       const { tokens } =
       await client.getToken(code)
 
-      if (!tokens.refresh_token) {
-
-        return res.status(400).json({
-
-          msg:
-          'No refresh token received. Remove app access from Google account and reconnect.'
-
-        })
-      }
-
       client.setCredentials(tokens)
-
-      const oauth2 =
-      google.oauth2({
-
-        version: 'v2',
-
-        auth: client
-      })
-
-      const profile =
-      await oauth2.userinfo.get()
 
       const youtube =
       google.youtube({
 
-        version: 'v3',
+        version:'v3',
 
-        auth: client
+        auth:client
+
       })
 
-      const channels =
+      const data =
       await youtube.channels.list({
 
-        mine: true,
+        mine:true,
 
-        part: ['snippet']
+        part:['snippet']
+
       })
 
       const channel =
-      channels.data.items?.[0]
+      data.data.items?.[0]
 
-      if (!channel) {
-
-        return res.status(400).json({
-
-          msg: 'No YouTube channel found'
-
-        })
-      }
-
-      const exists =
-      await Channel.findOne({
-
-        userId: req.user._id,
-
-        channelId: channel.id
-
-      })
-
-      if (exists) {
-
-        return res.json({
-
-          msg: 'Channel already connected',
-
-          channel: exists
-
-        })
-      }
-
-      const newChannel =
+      const saved =
       await Channel.create({
 
-        userId: req.user._id,
+        userId:req.user._id,
 
-        email:
-        profile.data.email,
-
-        channelId:
-        channel.id,
+        channelId:channel.id,
 
         channelTitle:
-        channel.snippet?.title || '',
+        channel.snippet.title,
 
         profileImg:
         channel.snippet
-        ?.thumbnails
-        ?.default
-        ?.url || '',
+        .thumbnails
+        .default
+        .url,
 
         refresh_token:
         tokens.refresh_token
@@ -953,262 +539,81 @@ app.post(
 
       res.json({
 
-        msg:
-        'YouTube Connected Successfully',
+        msg:'Connected',
 
-        channel: newChannel
+        channel:saved
 
       })
 
-    } catch (err) {
+    }catch(err){
 
-      console.error(err)
+      res.status(500)
+      .json({
 
-      res.status(400).json({
-
-        msg:
-        'OAuth failed: ' +
-        err.message
+        msg:err.message
 
       })
     }
-  }
-)
+})
 
-// ======================================================
-// GET CHANNELS
-// ======================================================
-
-app.get(
-  '/api/channels',
-
-  auth,
-
-  async (req, res) => {
-
-    try {
-
-      const channels =
-      await Channel.find({
-
-        userId: req.user._id
-
-      })
-
-      res.json({
-
-        channels
-
-      })
-
-    } catch (err) {
-
-      console.error(err)
-
-      res.status(500).json({
-
-        msg: err.message
-
-      })
-    }
-  }
-)
-
-// ======================================================
-// DISCONNECT CHANNEL
-// ======================================================
-
-app.delete(
-  '/api/channels/:id',
-
-  auth,
-
-  async (req, res) => {
-
-    try {
-
-      const channel =
-      await Channel.findOne({
-
-        _id: req.params.id,
-
-        userId: req.user._id
-
-      })
-
-      if (!channel) {
-
-        return res.status(404).json({
-
-          msg: 'Channel not found'
-
-        })
-      }
-
-      await channel.deleteOne()
-
-      res.json({
-
-        msg:
-        'Channel disconnected'
-
-      })
-
-    } catch (err) {
-
-      console.error(err)
-
-      res.status(500).json({
-
-        msg: err.message
-
-      })
-    }
-  }
-)
-
-// ======================================================
+// =====================================================
 // CREATE PROJECT
-// ======================================================
+// =====================================================
 
 app.post(
   '/api/projects',
-
   auth,
+  async(req,res)=>{
 
-  async (req, res) => {
-
-    try {
-
-      const {
-
-        name,
-
-        niche,
-
-        topics,
-
-        theme,
-
-        uploadsPerDay,
-
-        privacy,
-
-        channelId
-
-      } = req.body
-
-      if (
-
-        !name ||
-        !niche ||
-        !channelId
-
-      ) {
-
-        return res.status(400).json({
-
-          msg:
-          'Missing required fields'
-
-        })
-      }
-
-      const channel =
-      await Channel.findOne({
-
-        _id: channelId,
-
-        userId: req.user._id
-
-      })
-
-      if (!channel) {
-
-        return res.status(404).json({
-
-          msg:
-          'Channel not found'
-
-        })
-      }
+    try{
 
       const project =
       await Project.create({
 
-        userId: req.user._id,
+        userId:req.user._id,
 
-        channelId,
-
-        name,
-
-        niche,
-
-        topics:
-        Array.isArray(topics)
-        ? topics
-        : [],
-
-        theme:
-        theme || 'default',
-
-        uploadsPerDay:
-        uploadsPerDay || 1,
-
-        privacy:
-        privacy || 'public'
+        ...req.body
 
       })
 
       res.json({
 
-        msg:
-        'Project created',
+        msg:'Project created',
 
         project
 
       })
 
-    } catch (err) {
+    }catch(err){
 
-      console.error(err)
+      res.status(500)
+      .json({
 
-      res.status(500).json({
-
-        msg: err.message
+        msg:err.message
 
       })
     }
-  }
-)
+})
 
-// ======================================================
+// =====================================================
 // GET PROJECTS
-// ======================================================
+// =====================================================
 
 app.get(
   '/api/projects',
-
   auth,
+  async(req,res)=>{
 
-  async (req, res) => {
-
-    try {
+    try{
 
       const projects =
       await Project.find({
 
-        userId: req.user._id
+        userId:req.user._id
 
       })
 
       .populate('channelId')
-
-      .sort({
-
-        createdAt: -1
-
-      })
 
       res.json({
 
@@ -1216,289 +621,399 @@ app.get(
 
       })
 
-    } catch (err) {
+    }catch(err){
 
-      console.error(err)
+      res.status(500)
+      .json({
 
-      res.status(500).json({
-
-        msg: err.message
-
-      })
-    }
-  }
-)
-
-// ======================================================
-// DELETE PROJECT
-// ======================================================
-
-app.delete(
-  '/api/projects/:id',
-
-  auth,
-
-  async (req, res) => {
-
-    try {
-
-      const project =
-      await Project.findOne({
-
-        _id: req.params.id,
-
-        userId: req.user._id
-
-      })
-
-      if (!project) {
-
-        return res.status(404).json({
-
-          msg:
-          'Project not found'
-
-        })
-      }
-
-      await project.deleteOne()
-
-      res.json({
-
-        msg:
-        'Project deleted'
-
-      })
-
-    } catch (err) {
-
-      console.error(err)
-
-      res.status(500).json({
-
-        msg: err.message
+        msg:err.message
 
       })
     }
-  }
-)
-
-// ======================================================
-// TOGGLE PROJECT
-// ======================================================
-
-app.post(
-  '/api/projects/toggle/:id',
-
-  auth,
-
-  async (req, res) => {
-
-    try {
-
-      const project =
-      await Project.findOne({
-
-        _id: req.params.id,
-
-        userId: req.user._id
-
-      })
-
-      if (!project) {
-
-        return res.status(404).json({
-
-          msg:
-          'Project not found'
-
-        })
-      }
-
-      project.status =
-
-      project.status === 'active'
-      ? 'paused'
-      : 'active'
-
-      await project.save()
-
-      res.json({
-
-        msg:
-        'Project updated',
-
-        status:
-        project.status
-
-      })
-
-    } catch (err) {
-
-      console.error(err)
-
-      res.status(500).json({
-
-        msg: err.message
-
-      })
-    }
-  }
-)
-
-// ======================================================
-// CREATE JOB
-// ======================================================
-
-app.post(
-  '/api/jobs/create/:projectId',
-
-  auth,
-
-  async (req, res) => {
-
-    try {
-
-      const project =
-      await Project.findOne({
-
-        _id: req.params.projectId,
-
-        userId: req.user._id
-
-      })
-
-      if (!project) {
-
-        return res.status(404).json({
-
-          msg:
-          'Project not found'
-
-        })
-      }
-
-      const job =
-      await Job.create({
-
-        projectId:
-        project._id
-
-      })
-
-      res.json({
-
-        msg:
-        'Job created',
-
-        job
-
-      })
-
-    } catch (err) {
-
-      console.error(err)
-
-      res.status(500).json({
-
-        msg: err.message
-
-      })
-    }
-  }
-)
-
-// ======================================================
-// GET UPLOADS
-// ======================================================
-
-app.get(
-  '/api/uploads/:projectId',
-
-  auth,
-
-  async (req, res) => {
-
-    try {
-
-      const uploads =
-      await Upload.find({
-
-        projectId:
-        req.params.projectId
-
-      })
-
-      .sort({
-
-        createdAt: -1
-
-      })
-
-      res.json({
-
-        uploads
-
-      })
-
-    } catch (err) {
-
-      console.error(err)
-
-      res.status(500).json({
-
-        msg: err.message
-
-      })
-    }
-  }
-)
-
-// ======================================================
-// 404
-// ======================================================
-
-app.use((req, res) => {
-
-  res.status(404).json({
-
-    msg: 'Route not found'
-
-  })
 })
 
-// ======================================================
-// GLOBAL ERROR
-// ======================================================
+// =====================================================
+// CONTENT GENERATOR
+// =====================================================
 
-app.use((err, req, res, next) => {
+async function generateContent(
+  niche,
+  topics
+){
 
-  console.error(
+  let prompt = ''
 
-    '❌ Global Error:',
-    err
+  switch(niche){
+
+    case 'motivation':
+
+      prompt =
+      `Generate short powerful motivational quote about ${topics.join(', ')}`
+
+    break
+
+    case 'quiz':
+
+      prompt =
+      `Generate viral short quiz question about ${topics.join(', ')}`
+
+    break
+
+    case 'facts':
+
+      prompt =
+      `Generate shocking fact about ${topics.join(', ')}`
+
+    break
+
+    default:
+
+      prompt =
+      `Generate Islamic reminder about ${topics.join(', ')}`
+  }
+
+  const res =
+  await axios.post(
+
+    'https://api.groq.com/openai/v1/chat/completions',
+
+    {
+
+      model:'llama-3.1-8b-instant',
+
+      messages:[
+
+        {
+
+          role:'user',
+
+          content:prompt
+        }
+
+      ]
+
+    },
+
+    {
+
+      headers:{
+
+        Authorization:
+        `Bearer ${process.env.GROQ_API_KEY}`
+
+      }
+    }
   )
 
-  res.status(500).json({
+  return res.data
+  .choices[0]
+  .message
+  .content
+}
 
-    msg:
-    err.message ||
-    'Internal Server Error'
+// =====================================================
+// BACKGROUND
+// =====================================================
+
+async function generateBackground(
+  output
+){
+
+  const url =
+
+  'https://image.pollinations.ai/prompt/' +
+
+  encodeURIComponent(
+    'beautiful cinematic background'
+  )
+
+  const res =
+  await axios.get(url,{
+
+    responseType:'arraybuffer'
 
   })
-})
 
-// ======================================================
-// START SERVER
-// ======================================================
+  await fs.writeFile(
+    output,
+    res.data
+  )
+}
 
-const PORT =
-process.env.PORT || 4000
+// =====================================================
+// YOUTUBE UPLOAD
+// =====================================================
 
-app.listen(PORT, () => {
+async function uploadVideo({
+
+  channel,
+  videoPath,
+  title,
+  privacy
+
+}){
+
+  const oauth2 =
+  new google.auth.OAuth2(
+
+    process.env.GOOGLE_CLIENT_ID,
+
+    process.env.GOOGLE_CLIENT_SECRET
+  )
+
+  oauth2.setCredentials({
+
+    refresh_token:
+    channel.refresh_token
+
+  })
+
+  const youtube =
+  google.youtube({
+
+    version:'v3',
+
+    auth:oauth2
+
+  })
+
+  const res =
+  await youtube.videos.insert({
+
+    part:['snippet','status'],
+
+    requestBody:{
+
+      snippet:{
+
+        title,
+
+        description:title
+
+      },
+
+      status:{
+
+        privacyStatus:
+        privacy || 'public'
+
+      }
+
+    },
+
+    media:{
+
+      body:
+      fs.createReadStream(
+        videoPath
+      )
+
+    }
+
+  })
+
+  return res.data.id
+}
+
+// =====================================================
+// AUTOMATION ENGINE
+// =====================================================
+
+cron.schedule(
+
+  '*/30 * * * *',
+
+  async()=>{
+
+    console.log(
+      'Automation Running'
+    )
+
+    const projects =
+    await Project.find({
+
+      status:'active'
+
+    })
+
+    for(const project of projects){
+
+      try{
+
+        const channel =
+        await Channel.findById(
+          project.channelId
+        )
+
+        if(!channel) continue
+
+        const text =
+        await generateContent(
+
+          project.niche,
+
+          project.topics
+        )
+
+        const tmp =
+        path.join(
+
+          os.tmpdir(),
+
+          Date.now() + '.png'
+        )
+
+        await generateBackground(
+          tmp
+        )
+
+        const overlay =
+        path.join(
+
+          os.tmpdir(),
+
+          Date.now() + '.jpg'
+        )
+
+        await renderOverlay({
+
+          quote:text,
+
+          inputPng:tmp,
+
+          outputPng:overlay,
+
+          theme:project.theme
+
+        })
+
+        const uploaded =
+        await cloudinary.v2.uploader.upload(
+
+          overlay,
+
+          {
+
+            resource_type:'image'
+
+          }
+        )
+
+        const video =
+        await cloudinary.v2.uploader.explicit(
+
+          BASE_PUBLIC_ID,
+
+          {
+
+            resource_type:'video',
+
+            eager:[{
+
+              overlay:
+              uploaded.public_id
+              .replace(/\\//g,':'),
+
+              flags:'layer_apply',
+
+              width:1080,
+
+              height:1920,
+
+              crop:'fill',
+
+              format:'mp4'
+
+            }]
+
+          }
+        )
+
+        const mp4 =
+        video.eager[0]
+        .secure_url
+
+        const localVideo =
+        path.join(
+
+          os.tmpdir(),
+
+          Date.now() + '.mp4'
+        )
+
+        const response =
+        await axios.get(mp4,{
+
+          responseType:'stream'
+
+        })
+
+        const writer =
+        fs.createWriteStream(
+          localVideo
+        )
+
+        response.data.pipe(writer)
+
+        await new Promise(resolve=>{
+
+          writer.on(
+            'finish',
+            resolve
+          )
+        })
+
+        const videoId =
+        await uploadVideo({
+
+          channel,
+
+          videoPath:
+          localVideo,
+
+          title:text,
+
+          privacy:
+          project.privacy
+
+        })
+
+        await Upload.create({
+
+          projectId:
+          project._id,
+
+          title:text,
+
+          videoUrl:
+          `https://youtu.be/${videoId}`,
+
+          niche:
+          project.niche
+
+        })
+
+        console.log(
+          'Uploaded:',
+          videoId
+        )
+
+      }catch(err){
+
+        console.log(
+          err.message
+        )
+      }
+    }
+  }
+)
+
+// =====================================================
+
+app.listen(PORT,()=>{
 
   console.log(
 
-    `🚀 Server Running On Port ${PORT}`
+    `Server Running ${PORT}`
   )
 })
