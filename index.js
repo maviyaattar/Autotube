@@ -1,4 +1,3 @@
-index.js
 
 import 'dotenv/config'
 
