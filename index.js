@@ -1211,197 +1211,181 @@ cron.schedule(
 
         // ============================
         // AI CONTENT
-        // ============================
+        
+          console.log('1 Project Found')
 
-        const text =
-        await generateContent(
+const text =
+await generateContent(
 
-          project.niche,
+  project.niche,
 
-          project.topics
-        )
+  project.topics
+)
 
-        // ============================
-        // BACKGROUND
-        // ============================
+console.log('2 AI Generated')
 
-        const bg =
-        path.join(
+const bg =
+path.join(
 
-          os.tmpdir(),
+  os.tmpdir(),
 
-          Date.now() + '.png'
-        )
+  Date.now() + '.png'
+)
 
-        await generateBackground(
-          bg
-        )
+await generateBackground(bg)
 
-        // ============================
-        // OVERLAY
-        // ============================
+console.log('3 Background Generated')
 
-        const overlay =
-        path.join(
+const overlay =
+path.join(
 
-          os.tmpdir(),
+  os.tmpdir(),
 
-          Date.now() + '.png'
-        )
+  Date.now() + '.png'
+)
 
-        await renderOverlay({
+await renderOverlay({
 
-          quote:text,
+  quote:text,
 
-          inputPng:bg,
+  inputPng:bg,
 
-          outputPng:overlay,
+  outputPng:overlay,
 
-          theme:project.theme
+  theme:project.theme
 
-        })
+})
 
-        // ============================
-        // CLOUDINARY IMAGE
-        // ============================
+console.log('4 Overlay Rendered')
 
-        const uploaded =
-        await cloudinary.v2
-        .uploader
-        .upload(
+const uploaded =
+await cloudinary.v2
+.uploader
+.upload(
 
-          overlay,
+  overlay,
 
-          {
+  {
 
-            resource_type:'image'
-          }
-        )
+    resource_type:'image'
+  }
+)
 
-        // ============================
-        // RENDER VIDEO
-        // ============================
+console.log('5 Image Uploaded')
 
-        const video =
-        await cloudinary.v2
-        .uploader
-        .explicit(
+const video =
+await cloudinary.v2
+.uploader
+.explicit(
 
-          BASE_PUBLIC_ID,
+  BASE_PUBLIC_ID,
 
-          {
+  {
 
-            resource_type:'video',
+    resource_type:'video',
 
-            eager:[{
+    eager:[{
 
-              overlay:
-              uploaded.public_id
-              .replace(/\//g,':'),
+      overlay:
+      uploaded.public_id
+      .replace(/\//g,':'),
 
-              flags:'layer_apply',
+      flags:'layer_apply',
 
-              width:1080,
+      width:1080,
 
-              height:1920,
+      height:1920,
 
-              crop:'fill',
+      crop:'fill',
 
-              format:'mp4'
+      format:'mp4'
 
-            }]
-          }
-        )
+    }]
+  }
+)
 
-        const mp4 =
-        video.eager[0]
-        .secure_url
+console.log('6 Video Rendered')
 
-        // ============================
-        // DOWNLOAD VIDEO
-        // ============================
+const mp4 =
+video.eager[0]
+.secure_url
 
-        const localVideo =
-        path.join(
+console.log('7 MP4 URL Ready')
 
-          os.tmpdir(),
+const localVideo =
+path.join(
 
-          Date.now() + '.mp4'
-        )
+  os.tmpdir(),
 
-        const response =
-        await axios.get(mp4,{
+  Date.now() + '.mp4'
+)
 
-          responseType:'stream'
-        })
+const response =
+await axios.get(mp4,{
 
-        const writer =
-        fs.createWriteStream(
-          localVideo
-        )
+  responseType:'stream'
+})
 
-        response.data.pipe(writer)
+console.log('8 Download Started')
 
-        await new Promise(resolve=>{
+const writer =
+fs.createWriteStream(
+  localVideo
+)
 
-          writer.on(
-            'finish',
-            resolve
-          )
-        })
+response.data.pipe(writer)
 
-        // ============================
-        // UPLOAD TO YOUTUBE
-        // ============================
+await new Promise(resolve=>{
 
-        const videoId =
-        await uploadVideo({
+  writer.on(
+    'finish',
+    resolve
+  )
+})
 
-          channel,
+console.log('9 Video Downloaded')
 
-          videoPath:
-          localVideo,
+const videoId =
+await uploadVideo({
 
-          title:text,
+  channel,
 
-          privacy:
-          project.privacy
+  videoPath:
+  localVideo,
 
-        })
+  title:text,
 
-        // ============================
-        // SAVE RECORD
-        // ============================
+  privacy:
+  project.privacy
 
-        await Upload.create({
+})
 
-          projectId:
-          project._id,
+console.log('10 Uploaded To YouTube')
 
-          title:text,
+await Upload.create({
 
-          videoUrl:
-          `https://youtu.be/${videoId}`,
+  projectId:
+  project._id,
 
-          niche:
-          project.niche
+  title:text,
 
-        })
+  videoUrl:
+  `https://youtu.be/${videoId}`,
 
-        // ============================
-        // MARK UPLOADED
-        // ============================
+  niche:
+  project.niche
 
-        project.lastUploadDate =
-        today
+})
 
-        await project.save()
+project.lastUploadDate =
+today
 
-        console.log(
+await project.save()
 
-          'Uploaded:',
-          videoId
-        )
+console.log(
+  'Uploaded:',
+  videoId
+)
 
       }catch(err){
 
