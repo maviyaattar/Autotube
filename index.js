@@ -771,6 +771,168 @@ app.get(
 })
 
 // =====================================================
+// EDIT PROJECT
+// =====================================================
+
+app.put(
+
+  '/api/projects/:id',
+
+  auth,
+
+  async(req,res)=>{
+
+    try{
+
+      const project =
+      await Project.findOne({
+
+        _id:req.params.id,
+
+        userId:req.user._id
+
+      })
+
+      if(!project){
+
+        return res.status(404)
+        .json({
+
+          msg:'Project not found'
+        })
+      }
+
+      // ==========================
+      // UPDATE FIELDS
+      // ==========================
+
+      project.name =
+      req.body.name ||
+      project.name
+
+      project.niche =
+      req.body.niche ||
+      project.niche
+
+      project.topics =
+      req.body.topics ||
+      project.topics
+
+      project.theme =
+      req.body.theme ||
+      project.theme
+
+      project.privacy =
+      req.body.privacy ||
+      project.privacy
+
+      project.uploadTime =
+      req.body.uploadTime ||
+      project.uploadTime
+
+      project.timezone =
+      req.body.timezone ||
+      project.timezone
+
+      if(req.body.status){
+
+        project.status =
+        req.body.status
+      }
+
+      if(req.body.channelId){
+
+        project.channelId =
+        req.body.channelId
+      }
+
+      await project.save()
+
+      res.json({
+
+        msg:'Project updated',
+
+        project
+      })
+
+    }catch(err){
+
+      console.log(err)
+
+      res.status(500)
+      .json({
+
+        msg:err.message
+      })
+    }
+  }
+)
+
+// =====================================================
+// DELETE PROJECT
+// =====================================================
+
+app.delete(
+
+  '/api/projects/:id',
+
+  auth,
+
+  async(req,res)=>{
+
+    try{
+
+      const project =
+      await Project.findOne({
+
+        _id:req.params.id,
+
+        userId:req.user._id
+
+      })
+
+      if(!project){
+
+        return res.status(404)
+        .json({
+
+          msg:'Project not found'
+        })
+      }
+
+      // ==========================
+      // DELETE UPLOAD HISTORY
+      // ==========================
+
+      await Upload.deleteMany({
+
+        projectId:project._id
+      })
+
+      // ==========================
+      // DELETE PROJECT
+      // ==========================
+
+      await project.deleteOne()
+
+      res.json({
+
+        msg:'Project deleted'
+      })
+
+    }catch(err){
+
+      console.log(err)
+
+      res.status(500)
+      .json({
+
+        msg:err.message
+      })
+    }
+  }
+)
+// =====================================================
 // CONTENT GENERATOR
 // =====================================================
 
