@@ -673,10 +673,6 @@ app.delete(
 // CREATE PROJECT
 // =====================================================
 
-// =====================================================
-// CREATE PROJECT
-// =====================================================
-
 app.post(
 
   '/api/projects',
@@ -769,7 +765,6 @@ app.get(
       })
     }
 })
-
 // =====================================================
 // EDIT PROJECT
 // =====================================================
@@ -802,9 +797,9 @@ app.put(
         })
       }
 
-      // ==========================
+      // ====================================
       // UPDATE FIELDS
-      // ==========================
+      // ====================================
 
       project.name =
       req.body.name ||
@@ -814,9 +809,11 @@ app.put(
       req.body.niche ||
       project.niche
 
-      project.topics =
-      req.body.topics ||
-      project.topics
+      if(Array.isArray(req.body.topics)){
+
+        project.topics =
+        req.body.topics
+      }
 
       project.theme =
       req.body.theme ||
@@ -900,18 +897,18 @@ app.delete(
         })
       }
 
-      // ==========================
+      // ====================================
       // DELETE UPLOAD HISTORY
-      // ==========================
+      // ====================================
 
       await Upload.deleteMany({
 
         projectId:project._id
       })
 
-      // ==========================
+      // ====================================
       // DELETE PROJECT
-      // ==========================
+      // ====================================
 
       await project.deleteOne()
 
@@ -932,6 +929,11 @@ app.delete(
     }
   }
 )
+
+
+
+
+
 // =====================================================
 // CONTENT GENERATOR
 // =====================================================
@@ -1115,160 +1117,6 @@ async function uploadVideo({
   return res.data.id
 }
 
-// =====================================================
-// AUTOMATION ENGINE
-// =====================================================
-
-cron.schedule(
-
-  '*/30 * * * *',
-
-  async()=>{
-
-    console.log(
-      'Automation Running'
-    )
-
-    const projects =
-    await Project.find({
-
-      status:'active'
-
-    })
-
-    for(const project of projects){
-
-      try{
-
-        const channel =
-        await Channel.findById(
-          project.channelId
-        )
-
-        if(!channel) continue
-
-        const text =
-        await generateContent(
-
-          project.niche,
-
-          project.topics
-        )
-
-        const tmp =
-        path.join(
-
-          os.tmpdir(),
-
-          Date.now() + '.png'
-        )
-
-        await generateBackground(
-          tmp
-        )
-
-        const overlay =
-        path.join(
-
-          os.tmpdir(),
-
-          Date.now() + '.jpg'
-        )
-
-        await renderOverlay({
-
-          quote:text,
-
-          inputPng:tmp,
-
-          outputPng:overlay,
-
-          theme:project.theme
-
-        })
-
-        const uploaded =
-        await cloudinary.v2.uploader.upload(
-
-          overlay,
-
-          {
-
-            resource_type:'image'
-
-          }
-        )
-
-        const video =
-        await cloudinary.v2.uploader.explicit(
-
-          BASE_PUBLIC_ID,
-
-          {
-
-            resource_type:'video',
-
-            eager:[{
-
-              overlay:
-              uploaded.public_id
-              .replace(/\\//g,':'),
-
-              flags:'layer_apply',
-
-              width:1080,
-
-              height:1920,
-
-              crop:'fill',
-
-              format:'mp4'
-
-            }]
-
-          }
-        )
-
-        const mp4 =
-        video.eager[0]
-        .secure_url
-
-        const localVideo =
-        path.join(
-
-          os.tmpdir(),
-
-          Date.now() + '.mp4'
-        )
-
-        const response =
-        await axios.get(mp4,{
-
-          responseType:'stream'
-
-        })
-
-        const writer =
-        fs.createWriteStream(
-          localVideo
-        )
-
-        response.data.pipe(writer)
-
-        await new Promise(resolve=>{
-
-          writer.on(
-            'finish',
-            resolve
-          )
-        })
-
-        const videoId =
-        await uploadVideo({
-
-          channel,
-
-          videoPath:
 // =====================================================
 // AUTOMATION ENGINE
 // =====================================================
