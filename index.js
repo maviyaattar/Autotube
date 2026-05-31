@@ -554,7 +554,101 @@ app.post(
       })
     }
 })
+// =====================================================
+// CHANNEL ROUTES
+// PLACE THIS BELOW YOUTUBE CALLBACK ROUTE
+// =====================================================
 
+// =====================================================
+// GET CHANNELS
+// =====================================================
+
+app.get(
+
+  '/api/channels',
+
+  auth,
+
+  async(req,res)=>{
+
+    try{
+
+      const channels =
+      await Channel.find({
+
+        userId:req.user._id
+
+      })
+
+      res.json({
+
+        channels
+      })
+
+    }catch(err){
+
+      console.log(err)
+
+      res.status(500)
+      .json({
+
+        msg:err.message
+      })
+    }
+  }
+)
+
+// =====================================================
+// DELETE CHANNEL
+// =====================================================
+
+app.delete(
+
+  '/api/channels/:id',
+
+  auth,
+
+  async(req,res)=>{
+
+    try{
+
+      const channel =
+      await Channel.findOne({
+
+        _id:req.params.id,
+
+        userId:req.user._id
+
+      })
+
+      if(!channel){
+
+        return res.status(404)
+        .json({
+
+          msg:'Channel not found'
+        })
+      }
+
+      await channel.deleteOne()
+
+      res.json({
+
+        msg:'Channel deleted'
+      })
+
+    }catch(err){
+
+      console.log(err)
+
+      res.status(500)
+      .json({
+
+        msg:err.message
+      })
+    }
+  }
+)
 // =====================================================
 // CREATE PROJECT
 // =====================================================
