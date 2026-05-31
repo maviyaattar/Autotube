@@ -1,4 +1,3 @@
-
 import 'dotenv/config'
 
 import express from 'express'
@@ -9,11 +8,13 @@ import bcrypt from 'bcryptjs'
 
 import axios from 'axios'
 import cron from 'node-cron'
+
 import fs from 'fs-extra'
 import os from 'os'
 import path from 'path'
 
 import cloudinary from 'cloudinary'
+
 import { google } from 'googleapis'
 
 import renderOverlay from './renderOverlay.js'
@@ -34,8 +35,10 @@ const BASE_PUBLIC_ID =
 
 app.use(cors({
 
-  origin: [
+  origin:[
+
     'https://auto-tube-beta.vercel.app',
+
     'http://localhost:3000'
   ],
 
@@ -63,7 +66,7 @@ cloudinary.v2.config({
 })
 
 // =====================================================
-// MONGODB
+// DATABASE
 // =====================================================
 
 mongoose.connect(
@@ -71,11 +74,19 @@ mongoose.connect(
 )
 
 .then(()=>{
-  console.log('MongoDB Connected')
+
+  console.log(
+    'MongoDB Connected'
+  )
+
 })
 
 .catch(err=>{
-  console.log(err.message)
+
+  console.log(
+    err.message
+  )
+
 })
 
 // =====================================================
@@ -88,7 +99,9 @@ new mongoose.Schema({
   name:String,
 
   email:{
+
     type:String,
+
     unique:true
   },
 
@@ -99,7 +112,8 @@ new mongoose.Schema({
 const channelSchema =
 new mongoose.Schema({
 
-  userId:mongoose.Schema.Types.ObjectId,
+  userId:
+  mongoose.Schema.Types.ObjectId,
 
   channelId:String,
 
@@ -110,6 +124,7 @@ new mongoose.Schema({
   refresh_token:String
 
 })
+
 const projectSchema =
 new mongoose.Schema({
 
@@ -130,34 +145,40 @@ new mongoose.Schema({
   status:{
 
     type:String,
+
     default:'active'
   },
 
   privacy:{
 
     type:String,
+
     default:'public'
   },
 
   uploadTime:{
 
     type:String,
+
     default:'18:00'
   },
 
   timezone:{
 
     type:String,
+
     default:'Asia/Kolkata'
   },
 
-  lastUploadDate:{
+  nextUploadAt:{
 
-    type:String,
-    default:''
+    type:Date,
+
+    default:Date.now
   }
 
 })
+
 const uploadSchema =
 new mongoose.Schema({
 
@@ -173,6 +194,10 @@ new mongoose.Schema({
 },{
   timestamps:true
 })
+
+// =====================================================
+// MODELS
+// =====================================================
 
 const User =
 mongoose.model(
@@ -213,22 +238,29 @@ function createToken(id){
     {
 
       expiresIn:'30d'
-
     }
   )
 }
 
 async function auth(
+
   req,
   res,
   next
+
 ){
 
   try{
 
     const token =
-    req.header('Authorization')
-    ?.replace('Bearer ','')
+    req.header(
+      'Authorization'
+    )
+
+    ?.replace(
+      'Bearer ',
+      ''
+    )
 
     if(!token){
 
@@ -236,7 +268,6 @@ async function auth(
       .json({
 
         msg:'No token'
-
       })
     }
 
@@ -259,7 +290,6 @@ async function auth(
       .json({
 
         msg:'User not found'
-
       })
     }
 
@@ -273,7 +303,6 @@ async function auth(
     .json({
 
       msg:'Unauthorized'
-
     })
   }
 }
@@ -301,25 +330,29 @@ app.get('/',(req,res)=>{
   )
 
 })
-
 // =====================================================
 // SIGNUP
 // =====================================================
 
 app.post(
+
   '/api/signup',
+
   async(req,res)=>{
 
     try{
 
       const {
+
         name,
         email,
         password
+
       } = req.body
 
       const exists =
       await User.findOne({
+
         email
       })
 
@@ -329,13 +362,14 @@ app.post(
         .json({
 
           msg:'Email exists'
-
         })
       }
 
       const hash =
       await bcrypt.hash(
+
         password,
+
         10
       )
 
@@ -344,8 +378,8 @@ app.post(
 
         name,
         email,
-        password:hash
 
+        password:hash
       })
 
       const token =
@@ -358,7 +392,6 @@ app.post(
         token,
 
         user
-
       })
 
     }catch(err){
@@ -367,28 +400,33 @@ app.post(
       .json({
 
         msg:err.message
-
       })
     }
-})
+  }
+)
 
 // =====================================================
 // LOGIN
 // =====================================================
 
 app.post(
+
   '/api/login',
+
   async(req,res)=>{
 
     try{
 
       const {
+
         email,
         password
+
       } = req.body
 
       const user =
       await User.findOne({
+
         email
       })
 
@@ -398,13 +436,14 @@ app.post(
         .json({
 
           msg:'User not found'
-
         })
       }
 
       const valid =
       await bcrypt.compare(
+
         password,
+
         user.password
       )
 
@@ -414,7 +453,6 @@ app.post(
         .json({
 
           msg:'Wrong password'
-
         })
       }
 
@@ -428,7 +466,6 @@ app.post(
         token,
 
         user
-
       })
 
     }catch(err){
@@ -437,18 +474,21 @@ app.post(
       .json({
 
         msg:err.message
-
       })
     }
-})
+  }
+)
 
 // =====================================================
 // YOUTUBE CONNECT
 // =====================================================
 
 app.get(
+
   '/api/youtube/connect',
+
   auth,
+
   async(req,res)=>{
 
     try{
@@ -474,9 +514,7 @@ app.get(
           'https://www.googleapis.com/auth/youtube.upload',
 
           'https://www.googleapis.com/auth/youtube.force-ssl'
-
         ]
-
       })
 
       res.json({ url })
@@ -487,18 +525,21 @@ app.get(
       .json({
 
         msg:err.message
-
       })
     }
-})
+  }
+)
 
 // =====================================================
 // YOUTUBE CALLBACK
 // =====================================================
 
 app.post(
+
   '/api/youtube/callback',
+
   auth,
+
   async(req,res)=>{
 
     try{
@@ -512,7 +553,9 @@ app.post(
       const { tokens } =
       await client.getToken(code)
 
-      client.setCredentials(tokens)
+      client.setCredentials(
+        tokens
+      )
 
       const youtube =
       google.youtube({
@@ -520,7 +563,6 @@ app.post(
         version:'v3',
 
         auth:client
-
       })
 
       const data =
@@ -529,7 +571,6 @@ app.post(
         mine:true,
 
         part:['snippet']
-
       })
 
       const channel =
@@ -540,7 +581,8 @@ app.post(
 
         userId:req.user._id,
 
-        channelId:channel.id,
+        channelId:
+        channel.id,
 
         channelTitle:
         channel.snippet.title,
@@ -553,7 +595,6 @@ app.post(
 
         refresh_token:
         tokens.refresh_token
-
       })
 
       res.json({
@@ -561,7 +602,6 @@ app.post(
         msg:'Connected',
 
         channel:saved
-
       })
 
     }catch(err){
@@ -570,14 +610,10 @@ app.post(
       .json({
 
         msg:err.message
-
       })
     }
-})
-// =====================================================
-// CHANNEL ROUTES
-// PLACE THIS BELOW YOUTUBE CALLBACK ROUTE
-// =====================================================
+  }
+)
 
 // =====================================================
 // GET CHANNELS
@@ -597,7 +633,6 @@ app.get(
       await Channel.find({
 
         userId:req.user._id
-
       })
 
       res.json({
@@ -606,8 +641,6 @@ app.get(
       })
 
     }catch(err){
-
-      console.log(err)
 
       res.status(500)
       .json({
@@ -638,7 +671,6 @@ app.delete(
         _id:req.params.id,
 
         userId:req.user._id
-
       })
 
       if(!channel){
@@ -659,8 +691,6 @@ app.delete(
 
     }catch(err){
 
-      console.log(err)
-
       res.status(500)
       .json({
 
@@ -669,6 +699,7 @@ app.delete(
     }
   }
 )
+
 // =====================================================
 // CREATE PROJECT
 // =====================================================
@@ -683,6 +714,28 @@ app.post(
 
     try{
 
+      const uploadTime =
+      req.body.uploadTime || '18:00'
+
+      const hours =
+      uploadTime.split(':')[0]
+
+      const minutes =
+      uploadTime.split(':')[1]
+
+      const nextUpload =
+      new Date()
+
+      nextUpload.setHours(
+        Number(hours)
+      )
+
+      nextUpload.setMinutes(
+        Number(minutes)
+      )
+
+      nextUpload.setSeconds(0)
+
       const project =
       await Project.create({
 
@@ -692,22 +745,28 @@ app.post(
 
         niche:req.body.niche,
 
-        topics:req.body.topics || [],
+        topics:
+        req.body.topics || [],
 
-        theme:req.body.theme || 'golden',
+        theme:
+        req.body.theme || 'golden',
 
-        privacy:req.body.privacy || 'public',
+        privacy:
+        req.body.privacy || 'public',
 
         status:'active',
 
-        channelId:req.body.channelId,
+        channelId:
+        req.body.channelId,
 
-        uploadTime:
-        req.body.uploadTime || '18:00',
+        uploadTime,
 
         timezone:
-        req.body.timezone || 'Asia/Kolkata'
+        req.body.timezone ||
+        'Asia/Kolkata',
 
+        nextUploadAt:
+        nextUpload
       })
 
       res.json({
@@ -715,7 +774,6 @@ app.post(
         msg:'Project created',
 
         project
-
       })
 
     }catch(err){
@@ -724,18 +782,21 @@ app.post(
       .json({
 
         msg:err.message
-
       })
     }
   }
 )
+
 // =====================================================
 // GET PROJECTS
 // =====================================================
 
 app.get(
+
   '/api/projects',
+
   auth,
+
   async(req,res)=>{
 
     try{
@@ -752,7 +813,6 @@ app.get(
       res.json({
 
         projects
-
       })
 
     }catch(err){
@@ -761,10 +821,11 @@ app.get(
       .json({
 
         msg:err.message
-
       })
     }
-})
+  }
+)
+
 // =====================================================
 // EDIT PROJECT
 // =====================================================
@@ -785,7 +846,6 @@ app.put(
         _id:req.params.id,
 
         userId:req.user._id
-
       })
 
       if(!project){
@@ -797,51 +857,12 @@ app.put(
         })
       }
 
-      // ====================================
-      // UPDATE FIELDS
-      // ====================================
+      Object.assign(
 
-      project.name =
-      req.body.name ||
-      project.name
+        project,
 
-      project.niche =
-      req.body.niche ||
-      project.niche
-
-      if(Array.isArray(req.body.topics)){
-
-        project.topics =
-        req.body.topics
-      }
-
-      project.theme =
-      req.body.theme ||
-      project.theme
-
-      project.privacy =
-      req.body.privacy ||
-      project.privacy
-
-      project.uploadTime =
-      req.body.uploadTime ||
-      project.uploadTime
-
-      project.timezone =
-      req.body.timezone ||
-      project.timezone
-
-      if(req.body.status){
-
-        project.status =
-        req.body.status
-      }
-
-      if(req.body.channelId){
-
-        project.channelId =
-        req.body.channelId
-      }
+        req.body
+      )
 
       await project.save()
 
@@ -853,8 +874,6 @@ app.put(
       })
 
     }catch(err){
-
-      console.log(err)
 
       res.status(500)
       .json({
@@ -885,7 +904,6 @@ app.delete(
         _id:req.params.id,
 
         userId:req.user._id
-
       })
 
       if(!project){
@@ -897,18 +915,10 @@ app.delete(
         })
       }
 
-      // ====================================
-      // DELETE UPLOAD HISTORY
-      // ====================================
-
       await Upload.deleteMany({
 
         projectId:project._id
       })
-
-      // ====================================
-      // DELETE PROJECT
-      // ====================================
 
       await project.deleteOne()
 
@@ -919,8 +929,6 @@ app.delete(
 
     }catch(err){
 
-      console.log(err)
-
       res.status(500)
       .json({
 
@@ -929,18 +937,15 @@ app.delete(
     }
   }
 )
-
-
-
-
-
 // =====================================================
 // CONTENT GENERATOR
 // =====================================================
 
 async function generateContent(
+
   niche,
   topics
+
 ){
 
   let prompt = ''
@@ -950,14 +955,14 @@ async function generateContent(
     case 'motivation':
 
       prompt =
-      `Generate short powerful motivational quote about ${topics.join(', ')}`
+      `Generate short motivational quote about ${topics.join(', ')}`
 
     break
 
     case 'quiz':
 
       prompt =
-      `Generate viral short quiz question about ${topics.join(', ')}`
+      `Generate viral quiz question about ${topics.join(', ')}`
 
     break
 
@@ -983,17 +988,12 @@ async function generateContent(
 
       model:'llama-3.1-8b-instant',
 
-      messages:[
+      messages:[{
 
-        {
+        role:'user',
 
-          role:'user',
-
-          content:prompt
-        }
-
-      ]
-
+        content:prompt
+      }]
     },
 
     {
@@ -1002,7 +1002,6 @@ async function generateContent(
 
         Authorization:
         `Bearer ${process.env.GROQ_API_KEY}`
-
       }
     }
   )
@@ -1014,7 +1013,7 @@ async function generateContent(
 }
 
 // =====================================================
-// BACKGROUND
+// GENERATE BACKGROUND
 // =====================================================
 
 async function generateBackground(
@@ -1033,11 +1032,12 @@ async function generateBackground(
   await axios.get(url,{
 
     responseType:'arraybuffer'
-
   })
 
   await fs.writeFile(
+
     output,
+
     res.data
   )
 }
@@ -1067,7 +1067,6 @@ async function uploadVideo({
 
     refresh_token:
     channel.refresh_token
-
   })
 
   const youtube =
@@ -1076,13 +1075,16 @@ async function uploadVideo({
     version:'v3',
 
     auth:oauth2
-
   })
 
   const res =
   await youtube.videos.insert({
 
-    part:['snippet','status'],
+    part:[
+
+      'snippet',
+      'status'
+    ],
 
     requestBody:{
 
@@ -1091,16 +1093,13 @@ async function uploadVideo({
         title,
 
         description:title
-
       },
 
       status:{
 
         privacyStatus:
         privacy || 'public'
-
       }
-
     },
 
     media:{
@@ -1109,9 +1108,7 @@ async function uploadVideo({
       fs.createReadStream(
         videoPath
       )
-
     }
-
   })
 
   return res.data.id
@@ -1123,7 +1120,7 @@ async function uploadVideo({
 
 cron.schedule(
 
-  '*/5 * * * *',
+  '* * * * *',
 
   async()=>{
 
@@ -1131,275 +1128,306 @@ cron.schedule(
       'Checking Projects...'
     )
 
-    const now =
-    new Date()
+    try{
 
-    const hours =
-    String(
-      now.getHours()
-    ).padStart(2,'0')
+      const projects =
+      await Project.find({
 
-    const minutes =
-    String(
-      now.getMinutes()
-    ).padStart(2,'0')
+        status:'active',
 
-    const currentTime =
-    `${hours}:${minutes}`
+        nextUploadAt:{
 
-    const today =
-    now.toISOString()
-    .split('T')[0]
-
-    const projects =
-    await Project.find({
-
-      status:'active'
-    })
-
-    for(const project of projects){
-
-      try{
-
-        // ============================
-        // CHECK TIME
-        // ============================
-
-        if(
-
-          project.uploadTime !==
-          currentTime
-
-        ){
-          continue
+          $lte:new Date()
         }
+      })
 
-        // ============================
-        // PREVENT DOUBLE UPLOAD
-        // ============================
+      console.log(
 
-        if(
+        'Projects Found:',
 
-          project.lastUploadDate ===
-          today
+        projects.length
+      )
 
-        ){
-          continue
-        }
+      for(const project of projects){
 
-        console.log(
-
-          'Uploading:',
-
-          project.name
-        )
-
-        const channel =
-        await Channel.findById(
-
-          project.channelId
-        )
-
-        if(!channel){
+        try{
 
           console.log(
-            'Channel missing'
+
+            'Uploading:',
+
+            project.name
           )
 
-          continue
+          // =================================
+          // CHANNEL
+          // =================================
+
+          const channel =
+          await Channel.findById(
+
+            project.channelId
+          )
+
+          if(!channel){
+
+            console.log(
+              'Channel missing'
+            )
+
+            continue
+          }
+
+          // =================================
+          // AI CONTENT
+          // =================================
+
+          const text =
+          await generateContent(
+
+            project.niche,
+
+            project.topics
+          )
+
+          console.log(
+            'AI generated'
+          )
+
+          // =================================
+          // BACKGROUND
+          // =================================
+
+          const bg =
+          path.join(
+
+            os.tmpdir(),
+
+            Date.now() + '.png'
+          )
+
+          await generateBackground(
+            bg
+          )
+
+          console.log(
+            'Background generated'
+          )
+
+          // =================================
+          // OVERLAY
+          // =================================
+
+          const overlay =
+          path.join(
+
+            os.tmpdir(),
+
+            Date.now() + '.png'
+          )
+
+          await renderOverlay({
+
+            quote:text,
+
+            inputPng:bg,
+
+            outputPng:overlay,
+
+            theme:project.theme
+
+          })
+
+          console.log(
+            'Overlay rendered'
+          )
+
+          // =================================
+          // CLOUDINARY IMAGE
+          // =================================
+
+          const uploaded =
+          await cloudinary.v2
+          .uploader
+          .upload(
+
+            overlay,
+
+            {
+
+              resource_type:'image'
+            }
+          )
+
+          console.log(
+            'Image uploaded'
+          )
+
+          // =================================
+          // RENDER VIDEO
+          // =================================
+
+          const video =
+          await cloudinary.v2
+          .uploader
+          .explicit(
+
+            BASE_PUBLIC_ID,
+
+            {
+
+              resource_type:'video',
+
+              eager:[{
+
+                overlay:
+                uploaded.public_id
+                .replace(/\//g,':'),
+
+                flags:'layer_apply',
+
+                width:1080,
+
+                height:1920,
+
+                crop:'fill',
+
+                format:'mp4'
+              }]
+            }
+          )
+
+          console.log(
+            'Video rendered'
+          )
+
+          const mp4 =
+          video.eager[0]
+          .secure_url
+
+          // =================================
+          // DOWNLOAD VIDEO
+          // =================================
+
+          const localVideo =
+          path.join(
+
+            os.tmpdir(),
+
+            Date.now() + '.mp4'
+          )
+
+          const response =
+          await axios.get(mp4,{
+
+            responseType:'stream'
+          })
+
+          const writer =
+          fs.createWriteStream(
+            localVideo
+          )
+
+          response.data.pipe(writer)
+
+          await new Promise(resolve=>{
+
+            writer.on(
+              'finish',
+              resolve
+            )
+          })
+
+          console.log(
+            'Video downloaded'
+          )
+
+          // =================================
+          // UPLOAD TO YOUTUBE
+          // =================================
+
+          const videoId =
+          await uploadVideo({
+
+            channel,
+
+            videoPath:
+            localVideo,
+
+            title:text,
+
+            privacy:
+            project.privacy
+          })
+
+          console.log(
+            'Uploaded to YouTube'
+          )
+
+          // =================================
+          // SAVE HISTORY
+          // =================================
+
+          await Upload.create({
+
+            projectId:
+            project._id,
+
+            title:text,
+
+            videoUrl:
+            `https://youtu.be/${videoId}`,
+
+            niche:
+            project.niche
+          })
+
+          // =================================
+          // NEXT UPLOAD
+          // =================================
+
+          const next =
+          new Date()
+
+          next.setDate(
+            next.getDate() + 1
+          )
+
+          project.nextUploadAt =
+          next
+
+          await project.save()
+
+          console.log(
+            'Completed:',
+            videoId
+          )
+
+        }catch(err){
+
+          console.log(
+
+            'PROJECT ERROR:',
+
+            err.message
+          )
         }
-
-        // ============================
-        // AI CONTENT
-        
-          console.log('1 Project Found')
-
-const text =
-await generateContent(
-
-  project.niche,
-
-  project.topics
-)
-
-console.log('2 AI Generated')
-
-const bg =
-path.join(
-
-  os.tmpdir(),
-
-  Date.now() + '.png'
-)
-
-await generateBackground(bg)
-
-console.log('3 Background Generated')
-
-const overlay =
-path.join(
-
-  os.tmpdir(),
-
-  Date.now() + '.png'
-)
-
-await renderOverlay({
-
-  quote:text,
-
-  inputPng:bg,
-
-  outputPng:overlay,
-
-  theme:project.theme
-
-})
-
-console.log('4 Overlay Rendered')
-
-const uploaded =
-await cloudinary.v2
-.uploader
-.upload(
-
-  overlay,
-
-  {
-
-    resource_type:'image'
-  }
-)
-
-console.log('5 Image Uploaded')
-
-const video =
-await cloudinary.v2
-.uploader
-.explicit(
-
-  BASE_PUBLIC_ID,
-
-  {
-
-    resource_type:'video',
-
-    eager:[{
-
-      overlay:
-      uploaded.public_id
-      .replace(/\//g,':'),
-
-      flags:'layer_apply',
-
-      width:1080,
-
-      height:1920,
-
-      crop:'fill',
-
-      format:'mp4'
-
-    }]
-  }
-)
-
-console.log('6 Video Rendered')
-
-const mp4 =
-video.eager[0]
-.secure_url
-
-console.log('7 MP4 URL Ready')
-
-const localVideo =
-path.join(
-
-  os.tmpdir(),
-
-  Date.now() + '.mp4'
-)
-
-const response =
-await axios.get(mp4,{
-
-  responseType:'stream'
-})
-
-console.log('8 Download Started')
-
-const writer =
-fs.createWriteStream(
-  localVideo
-)
-
-response.data.pipe(writer)
-
-await new Promise(resolve=>{
-
-  writer.on(
-    'finish',
-    resolve
-  )
-})
-
-console.log('9 Video Downloaded')
-
-const videoId =
-await uploadVideo({
-
-  channel,
-
-  videoPath:
-  localVideo,
-
-  title:text,
-
-  privacy:
-  project.privacy
-
-})
-
-console.log('10 Uploaded To YouTube')
-
-await Upload.create({
-
-  projectId:
-  project._id,
-
-  title:text,
-
-  videoUrl:
-  `https://youtu.be/${videoId}`,
-
-  niche:
-  project.niche
-
-})
-
-project.lastUploadDate =
-today
-
-await project.save()
-
-console.log(
-  'Uploaded:',
-  videoId
-)
-
-      }catch(err){
-
-        console.log(
-
-          'Automation Error:',
-
-          err.message
-        )
       }
+
+    }catch(err){
+
+      console.log(
+
+        'CRON ERROR:',
+
+        err.message
+      )
     }
   }
 )
 
+// =====================================================
+// SERVER
 // =====================================================
 
 app.listen(PORT,()=>{
