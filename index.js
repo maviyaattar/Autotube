@@ -110,13 +110,14 @@ new mongoose.Schema({
   refresh_token:String
 
 })
-
 const projectSchema =
 new mongoose.Schema({
 
-  userId:mongoose.Schema.Types.ObjectId,
+  userId:
+  mongoose.Schema.Types.ObjectId,
 
-  channelId:mongoose.Schema.Types.ObjectId,
+  channelId:
+  mongoose.Schema.Types.ObjectId,
 
   name:String,
 
@@ -127,17 +128,36 @@ new mongoose.Schema({
   theme:String,
 
   status:{
+
     type:String,
     default:'active'
   },
 
   privacy:{
+
     type:String,
     default:'public'
+  },
+
+  uploadTime:{
+
+    type:String,
+    default:'18:00'
+  },
+
+  timezone:{
+
+    type:String,
+    default:'Asia/Kolkata'
+  },
+
+  lastUploadDate:{
+
+    type:String,
+    default:''
   }
 
 })
-
 const uploadSchema =
 new mongoose.Schema({
 
@@ -653,9 +673,16 @@ app.delete(
 // CREATE PROJECT
 // =====================================================
 
+// =====================================================
+// CREATE PROJECT
+// =====================================================
+
 app.post(
+
   '/api/projects',
+
   auth,
+
   async(req,res)=>{
 
     try{
@@ -665,7 +692,25 @@ app.post(
 
         userId:req.user._id,
 
-        ...req.body
+        name:req.body.name,
+
+        niche:req.body.niche,
+
+        topics:req.body.topics || [],
+
+        theme:req.body.theme || 'golden',
+
+        privacy:req.body.privacy || 'public',
+
+        status:'active',
+
+        channelId:req.body.channelId,
+
+        uploadTime:
+        req.body.uploadTime || '18:00',
+
+        timezone:
+        req.body.timezone || 'Asia/Kolkata'
 
       })
 
@@ -686,8 +731,8 @@ app.post(
 
       })
     }
-})
-
+  }
+)
 // =====================================================
 // GET PROJECTS
 // =====================================================
@@ -1062,6 +1107,249 @@ cron.schedule(
           channel,
 
           videoPath:
+// =====================================================
+// AUTOMATION ENGINE
+// =====================================================
+
+cron.schedule(
+
+  '*/5 * * * *',
+
+  async()=>{
+
+    console.log(
+      'Checking Projects...'
+    )
+
+    const now =
+    new Date()
+
+    const hours =
+    String(
+      now.getHours()
+    ).padStart(2,'0')
+
+    const minutes =
+    String(
+      now.getMinutes()
+    ).padStart(2,'0')
+
+    const currentTime =
+    `${hours}:${minutes}`
+
+    const today =
+    now.toISOString()
+    .split('T')[0]
+
+    const projects =
+    await Project.find({
+
+      status:'active'
+    })
+
+    for(const project of projects){
+
+      try{
+
+        // ============================
+        // CHECK TIME
+        // ============================
+
+        if(
+
+          project.uploadTime !==
+          currentTime
+
+        ){
+          continue
+        }
+
+        // ============================
+        // PREVENT DOUBLE UPLOAD
+        // ============================
+
+        if(
+
+          project.lastUploadDate ===
+          today
+
+        ){
+          continue
+        }
+
+        console.log(
+
+          'Uploading:',
+
+          project.name
+        )
+
+        const channel =
+        await Channel.findById(
+
+          project.channelId
+        )
+
+        if(!channel){
+
+          console.log(
+            'Channel missing'
+          )
+
+          continue
+        }
+
+        // ============================
+        // AI CONTENT
+        // ============================
+
+        const text =
+        await generateContent(
+
+          project.niche,
+
+          project.topics
+        )
+
+        // ============================
+        // BACKGROUND
+        // ============================
+
+        const bg =
+        path.join(
+
+          os.tmpdir(),
+
+          Date.now() + '.png'
+        )
+
+        await generateBackground(
+          bg
+        )
+
+        // ============================
+        // OVERLAY
+        // ============================
+
+        const overlay =
+        path.join(
+
+          os.tmpdir(),
+
+          Date.now() + '.png'
+        )
+
+        await renderOverlay({
+
+          quote:text,
+
+          inputPng:bg,
+
+          outputPng:overlay,
+
+          theme:project.theme
+
+        })
+
+        // ============================
+        // CLOUDINARY IMAGE
+        // ============================
+
+        const uploaded =
+        await cloudinary.v2
+        .uploader
+        .upload(
+
+          overlay,
+
+          {
+
+            resource_type:'image'
+          }
+        )
+
+        // ============================
+        // RENDER VIDEO
+        // ============================
+
+        const video =
+        await cloudinary.v2
+        .uploader
+        .explicit(
+
+          BASE_PUBLIC_ID,
+
+          {
+
+            resource_type:'video',
+
+            eager:[{
+
+              overlay:
+              uploaded.public_id
+              .replace(/\//g,':'),
+
+              flags:'layer_apply',
+
+              width:1080,
+
+              height:1920,
+
+              crop:'fill',
+
+              format:'mp4'
+
+            }]
+          }
+        )
+
+        const mp4 =
+        video.eager[0]
+        .secure_url
+
+        // ============================
+        // DOWNLOAD VIDEO
+        // ============================
+
+        const localVideo =
+        path.join(
+
+          os.tmpdir(),
+
+          Date.now() + '.mp4'
+        )
+
+        const response =
+        await axios.get(mp4,{
+
+          responseType:'stream'
+        })
+
+        const writer =
+        fs.createWriteStream(
+          localVideo
+        )
+
+        response.data.pipe(writer)
+
+        await new Promise(resolve=>{
+
+          writer.on(
+            'finish',
+            resolve
+          )
+        })
+
+        // ============================
+        // UPLOAD TO YOUTUBE
+        // ============================
+
+        const videoId =
+        await uploadVideo({
+
+          channel,
+
+          videoPath:
           localVideo,
 
           title:text,
@@ -1070,6 +1358,10 @@ cron.schedule(
           project.privacy
 
         })
+
+        // ============================
+        // SAVE RECORD
+        // ============================
 
         await Upload.create({
 
@@ -1086,7 +1378,17 @@ cron.schedule(
 
         })
 
+        // ============================
+        // MARK UPLOADED
+        // ============================
+
+        project.lastUploadDate =
+        today
+
+        await project.save()
+
         console.log(
+
           'Uploaded:',
           videoId
         )
@@ -1094,6 +1396,9 @@ cron.schedule(
       }catch(err){
 
         console.log(
+
+          'Automation Error:',
+
           err.message
         )
       }
